@@ -1,0 +1,209 @@
+#read data
+wine = read.csv("winequality-red.csv", head=TRUE)
+dim(wine)
+head(wine)
+
+#target variable
+##change to binary/ classification
+wine$factor.quality <- ifelse(wine$quality >6.5, "Good", "Bad")
+wine$factor.quality <- as.factor(wine$factor.quality)
+##drop column
+wine <- wine[,-12]
+
+#train and test data
+set.seed(100)
+train.prop = .75
+train.cases = sample(nrow(wine) * train.prop)
+length(train.cases)
+head(train.cases)
+
+
+####original: without any change
+quality.train = wine[train.cases,]
+quality.test = wine[-train.cases,]
+
+
+#bayes classification
+
+##fit and predict
+library(e1071)
+wine.nb <- naiveBayes(factor.quality ~ ., data=quality.train)
+pred.nb <- predict(wine.nb, quality.test)
+
+##frequency table
+(bayes.table = table(pred.nb, quality.test$factor.quality))
+(CrossTv = table(quality.test$factor.quality, pred.nb))
+
+##jaccard similarity index: 0.232
+CrossTv[2,2]/(dim(quality.test)[1]-CrossTv[1,1])
+
+##prediction accuracy: 0.843
+sum(diag(CrossTv))/dim(quality.test)[1] 
+
+##plot
+library(cluster)
+clusplot(quality.test[,-12], pred.nb, color=TRUE, 
+	shade=TRUE, labels=4, lines=0, 
+	main="Naive Bayes classification, valid data")
+
+
+#random forest classification
+
+##fit and predict
+library(randomForest)
+set.seed(100)
+wine.rf <- randomForest(factor.quality ~ ., data=quality.train, ntree=1000)
+pred.nb <-predict(wine.rf, quality.test, predict.all=TRUE)
+
+##frequency table
+n=dim(quality.test)[1]
+wine.rf.quality <- pred.nb$aggregate
+(rf.table = table(quality.test[,12], wine.rf.quality))
+(CrossTv = table(quality.test$factor.quality, wine.rf.quality))
+
+##jaccard similarity index: 0.217, 0.174 without seed(100)
+CrossTv[2,2]/(dim(quality.test)[1]-CrossTv[1,1])
+
+##prediction accuracy: 0.91, 0.905 without seed(100)
+sum(diag(CrossTv))/dim(quality.test)[1]
+
+##plot
+library(cluster)
+clusplot(quality.test[,-12], wine.rf.quality, color=TRUE, shade=TRUE,
+	labels=4, lines=0, main="Random Forest, holdout data")
+
+##important variables: alcohol, sulphates, volatile.acidity, density
+wine.rf <- randomForest(factor.quality ~ ., data=quality.train, ntree=1000, importance=TRUE)
+importance(wine.rf,type=2)
+
+##plot
+varImpPlot(wine.rf, main="Variable importance by Quality")
+
+
+#check correlation: lots of values > 0.5 (collinearitly)
+library(psych)
+corr.test(as.matrix(wine[,1:11]))
+
+
+#factor analysis: 4
+library(nFactors)
+nScree(wine[,1:11])
+eigen(cor(wine[,1:11]))
+
+##rotation: 57% of the data can be explained by these 4 factors 
+library(GPArotation)
+factor.result = factanal(wine[,1:11], factor=4, scores="Bartlett")
+###factor1(acid): fixed.acidity, citric.acid, pH
+###factor2(alcohol): alcohol
+###factor3(so2): free.sulfur.dioxide, total.sulfur.dioxide
+###factor4(density): density
+
+
+
+####adjusted: with key factors
+wine.scores <- data.frame(factor.result$scores)
+wine.scores$quality <- wine$factor.quality
+quality.train = wine.scores[train.cases,]
+quality.test = wine.scores[-train.cases,]
+
+#perceptual map
+##compute group mean
+quality.mean <- aggregate(wine.scores[,1:4], list(wine.scores[,5]), mean) ##Using Factor 1 and 2
+
+#mapping
+quality.mean.sc <- quality.mean[,2:3]
+plot(quality.mean.sc, type="n", xlab="Factor2: Acid", ylab="Factor1: Alcohol")
+rownames<-c("Good", "Bad")
+text(quality.mean.sc,rownames, cex=0.7)
+
+
+#bayes classification
+
+##fit and predict
+wine.nb <- naiveBayes(quality ~ ., data=quality.train)
+pred.nb <- predict(wine.nb, quality.test)
+
+##frequency table
+(bayes.table = table(pred.nb, quality.test$quality))
+(CrossTv = table(quality.test$quality, pred.nb))
+
+##jaccard similarity index: 0.104
+CrossTv[2,2]/(dim(quality.test)[1]-CrossTv[1,1])
+
+##prediction accuracy: 0.893
+sum(diag(CrossTv))/dim(quality.test)[1] 
+
+##plot
+clusplot(quality.test[,-5], pred.nb, color=TRUE, 
+	shade=TRUE, labels=4, lines=0, 
+	main="Naive Bayes classification, valid data")
+
+
+#random forest classification
+
+##fit and predict
+set.seed(100)
+wine.rf <- randomForest(quality ~ ., data=quality.train, ntree=1000)
+pred.nb <-predict(wine.rf, quality.test, predict.all=TRUE)
+
+##frequency table
+n=dim(quality.test)[1]
+wine.rf.quality <- pred.nb$aggregate
+(rf.table = table(quality.test[,5], wine.rf.quality))
+(CrossTv = table(quality.test$quality, wine.rf.quality))
+
+##jaccard similarity index: 0.104, 0.106 without seed(100)
+CrossTv[2,2]/(dim(quality.test)[1]-CrossTv[1,1])
+
+##prediction accuracy: 0.893, 0.895 without seed(100)
+sum(diag(CrossTv))/dim(quality.test)[1]
+
+##plot
+library(cluster)
+clusplot(quality.test[,-12], wine.rf.quality, color=TRUE, shade=TRUE,
+	labels=4, lines=0, main="Random Forest, holdout data")
+
+##important variables: factor2, factor1, factor3, factor4
+wine.rf <- randomForest(quality ~ ., data=quality.train, ntree=1000, importance=TRUE)
+importance(wine.rf,type=2)
+
+##plot
+varImpPlot(wine.rf, main="Variable importance by Quality")
+
+
+
+
+
+
+
+
+
+####adjusted-2: 
+wine.cp <- wine
+#skewed data: see if we need to consider
+hist(wine.cp$citric.acid)
+hist(wine.cp$residual.sugar)
+hist(wine.cp$chlorides)
+hist(wine.cp$alcohol)
+
+##take log
+wine.cp$log_citric.acid <- log(wine.cp$citric.acid)
+wine.cp$log_residual.sugar <- log(wine.cp$residual.sugar)
+wine.cp$log_chlorides <- log(wine.cp$chlorides)
+wine.cp$log_alcohol <- log(wine.cp$alcohol)
+
+##check distribution
+hist(wine.cp$log_citric.acid)
+hist(wine.cp$log_residual.sugar)
+hist(wine.cp$log_chlorides)
+hist(wine.cp$log_alcohol)
+
+##drop column
+wine.cp <- wine.cp[,c(-3,-4,-5,-11)]
+
+
+#train and test data
+quality.train = wine.cp[train.cases,]
+quality.test = wine.cp[-train.cases,]
+
+
